@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Iterable
+from typing import List
 
 import pandas as pd
 import streamlit as st
@@ -16,7 +16,7 @@ from app.repository import (
     criar_transacao,
     listar_transacoes,
 )
-from app.schemas import TransacaoCreate
+from app.schemas import GastoPorCategoria, TransacaoCreate, TransacaoSchema
 from app.database import session_scope
 
 
@@ -25,6 +25,12 @@ st.title("Moneytora – Monitoramento Financeiro com Agentes de IA")
 st.caption(
     "Automatize o processamento de transações, visualize seus gastos e converse com o coach financeiro."
 )
+
+
+def _formatar_moeda(valor: float) -> str:
+    """Formata valores monetários no padrão brasileiro simples."""
+
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def _mostrar_alerta_chave_api() -> None:
@@ -51,11 +57,12 @@ def _executar_fluxo_processamento(texto: str) -> dict[str, object]:
         raise RuntimeError(f"Falha inesperada durante o processamento: {exc}") from exc
 
 
-def _carregar_transacoes() -> list:
+def _carregar_transacoes() -> List[TransacaoSchema]:
     """Carrega transações cadastradas no banco para exibição."""
 
     with session_scope() as session:
-        return listar_transacoes(session, limit=500)
+        registros = listar_transacoes(session, limit=500)
+        return [TransacaoSchema.model_validate(registro) for registro in registros]
 
 
 def _registrar_transacao_manualmente(dados: TransacaoCreate) -> None:
@@ -65,11 +72,12 @@ def _registrar_transacao_manualmente(dados: TransacaoCreate) -> None:
         criar_transacao(session, dados)
 
 
-def _carregar_gastos_por_categoria() -> Iterable:
+def _carregar_gastos_por_categoria() -> List[GastoPorCategoria]:
     """Recupera os totais agregados por categoria."""
 
     with session_scope() as session:
-        return calcular_gastos_por_categoria(session)
+        dados = calcular_gastos_por_categoria(session)
+        return [GastoPorCategoria.model_validate(item) for item in dados]
 
 
 def aba_processar_notificacoes() -> None:
@@ -177,24 +185,135 @@ def aba_transacoes() -> None:
 
 
 def aba_dashboard() -> None:
-    """Exibe gráficos simples com base nas transações armazenadas."""
+    """Exibe gráficos e insights detalhados sobre as transações."""
 
-    st.subheader("Visão Geral de Gastos por Categoria")
-    dados = list(_carregar_gastos_por_categoria())
+    st.subheader("Visão Geral de Gastos")
+    transacoes = _carregar_transacoes()
 
-    if not dados:
+    if not transacoes:
         st.info("Cadastre algumas transações para visualizar o dashboard.")
         return
 
-    df = pd.DataFrame(
-        {
-            "Categoria": [item.categoria for item in dados],
-            "Total": [round(float(item.total or 0), 2) for item in dados],
-        }
-    ).set_index("Categoria")
+    df_transacoes = pd.DataFrame(
+        [
+            {
+                "id": item.id,
+                "data": pd.to_datetime(item.data),
+                "categoria": item.categoria,
+                "empresa": item.empresa,
+                "valor": float(item.valor or 0),
+            }
+            for item in transacoes
+        ]
+    )
 
-    st.bar_chart(df, use_container_width=True)
-    st.write(df)
+    totais_categoria = (
+        df_transacoes.groupby("categoria", as_index=False)["valor"]
+        .sum()
+        .sort_values("valor", ascending=False)
+    )
+    total_gasto = df_transacoes["valor"].sum()
+    ticket_medio = df_transacoes["valor"].mean() if not df_transacoes.empty else 0
+    categoria_principal = (
+        totais_categoria.iloc[0]
+        if not totais_categoria.empty
+        else {"categoria": "N/A", "valor": 0}
+    )
+
+    df_transacoes["mes"] = df_transacoes["data"].dt.to_period("M")
+    gastos_mensais = (
+        df_transacoes.groupby("mes", as_index=False)["valor"]
+        .sum()
+        .sort_values("mes")
+    )
+    mes_atual_valor = gastos_mensais.iloc[-1]["valor"] if not gastos_mensais.empty else 0
+    delta_mensal = ""
+    if len(gastos_mensais) >= 2:
+        valor_anterior = gastos_mensais.iloc[-2]["valor"]
+        diferenca = mes_atual_valor - valor_anterior
+        if valor_anterior > 0:
+            percentual = (diferenca / valor_anterior) * 100
+            delta_mensal = f"{percentual:+.1f}%"
+        else:
+            delta_mensal = "n/d"
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total acumulado", _formatar_moeda(total_gasto), f"{len(transacoes)} transações")
+    col2.metric("Ticket médio", _formatar_moeda(ticket_medio))
+    col3.metric(
+        "Gasto do último mês",
+        _formatar_moeda(mes_atual_valor),
+        delta=delta_mensal or None,
+    )
+
+    st.markdown("#### Distribuição de gastos por categoria")
+    st.bar_chart(
+        totais_categoria.set_index("categoria"),
+        use_container_width=True,
+    )
+
+    col_graficos_1, col_graficos_2 = st.columns(2)
+
+    with col_graficos_1:
+        st.markdown("##### Evolução mensal de gastos")
+        if not gastos_mensais.empty:
+            mensal_plot = gastos_mensais.copy()
+            mensal_plot["mes"] = mensal_plot["mes"].astype(str)
+            st.line_chart(
+                mensal_plot.set_index("mes"),
+                use_container_width=True,
+            )
+        else:
+            st.info("Ainda não há dados suficientes para a visão mensal.")
+
+    with col_graficos_2:
+        st.markdown("##### Tendência diária de gastos")
+        gastos_diarios = (
+            df_transacoes.groupby("data", as_index=False)["valor"]
+            .sum()
+            .sort_values("data")
+        )
+        st.area_chart(
+            gastos_diarios.set_index("data"),
+            use_container_width=True,
+        )
+
+    st.markdown("#### Insights automáticos")
+    insights = []
+    if total_gasto:
+        insights.append(
+            f"- Categoria com maior gasto: **{categoria_principal['categoria']}** "
+            f"({_formatar_moeda(categoria_principal['valor'])})."
+        )
+    if len(transacoes) > 1:
+        top_empresas = (
+            df_transacoes.groupby("empresa", as_index=False)["valor"]
+            .sum()
+            .sort_values("valor", ascending=False)
+            .head(3)
+        )
+        ranking_empresas = ", ".join(
+            f"{linha['empresa']} ({_formatar_moeda(linha['valor'])})"
+            for _, linha in top_empresas.iterrows()
+        )
+        insights.append(f"- Principais estabelecimentos consumidores: {ranking_empresas}.")
+    if delta_mensal:
+        insights.append(
+            "- O último mês apresentou variação de "
+            f"{delta_mensal.replace('+', '+ ').replace('-', '- ')} em relação ao anterior."
+        )
+    if not insights:
+        insights.append("- Cadastre mais transações para obter insights detalhados.")
+    for insight in insights:
+        st.markdown(insight)
+
+    st.markdown("#### Transações recentes")
+    recentes = df_transacoes.sort_values("data", ascending=False).head(10)
+    recentes_formatado = recentes.assign(
+        data=recentes["data"].dt.strftime("%d/%m/%Y"),
+        valor=recentes["valor"].map(_formatar_moeda),
+    )[["data", "empresa", "categoria", "valor"]]
+    st.dataframe(recentes_formatado, use_container_width=True, hide_index=True)
 
 
 def aba_coach() -> None:
@@ -250,6 +369,7 @@ def aba_coach() -> None:
             "O agente coach não está disponível no momento. "
             "Verifique a configuração da `GOOGLE_API_KEY`."
         )
+
         return
     except Exception as exc:  # pragma: no cover - depende de serviços externos
         st.error(f"Falha ao obter resposta do coach: {exc}")
@@ -271,4 +391,3 @@ abas = {
 
 selecionada = st.sidebar.radio("Navegação", list(abas.keys()))
 abas[selecionada]()
-
