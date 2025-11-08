@@ -26,7 +26,7 @@ def _build_llm() -> ChatGoogleGenerativeAI:
         raise EnvironmentError(
             "GOOGLE_API_KEY não configurada. Configure a variável de ambiente para utilizar o agente de segurança."
         )
-    return ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=GOOGLE_API_KEY)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=GOOGLE_API_KEY)
 
 
 @lru_cache(maxsize=1)
