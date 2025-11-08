@@ -1,0 +1,20 @@
+[theme]
+primaryColor = "#1E90FF"        # Azul principal (botões, sliders, etc.)
+backgroundColor = "#FFFFFF"     # Fundo branco
+secondaryBackgroundColor = "#F2F6FC"  # Fundo de painéis, leve azul-claro
+textColor = "#1C1C1C"           # Texto preto suave
+font = "sans serif"
+
+# 💡 (opcional) aparência dos gráficos padrão
+[deprecation]
+showPyplotGlobalUse = false
+
+[server]
+enableCORS = false
+enableXsrfProtection = true
+headless = true
+port = 8501
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true

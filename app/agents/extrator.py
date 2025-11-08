@@ -24,7 +24,7 @@ output_parser = PydanticOutputParser(pydantic_object=DadosTransacao)
 prompt_template = """
 Você é um especialista em extrair informações financeiras de textos.
 Analise o texto a seguir e extraia o valor, a empresa e a data da transação.
-Se a data não especificar o ano, assuma o ano corrente.
+Se a data não especificar o ano, assuma {date}`.
 
 {format_instructions}
 
@@ -34,7 +34,10 @@ Texto da transação:
 
 prompt = ChatPromptTemplate.from_template(
     template=prompt_template,
-    partial_variables={"format_instructions": output_parser.get_format_instructions()},
+    partial_variables={
+        "format_instructions": output_parser.get_format_instructions(),
+        "date": date.today().year,
+    },
 )
 
 
@@ -45,7 +48,7 @@ def _build_llm() -> ChatGoogleGenerativeAI:
         raise EnvironmentError(
             "GOOGLE_API_KEY não configurada. Configure a variável de ambiente para utilizar o agente extrator."
         )
-    return ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=GOOGLE_API_KEY)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=GOOGLE_API_KEY)
 
 
 # Encadeamos prompt -> modelo -> parser utilizando a sintaxe de pipe do LangChain.
