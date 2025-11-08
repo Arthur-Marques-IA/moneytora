@@ -236,7 +236,22 @@ Para executar a API em ambiente local siga as etapas abaixo:
    uvicorn app.main:app --reload
    ```
 
-6. **Executar a suíte de testes automatizados**
+6. **Executar a interface Streamlit (raiz do projeto)**
+
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+7. **Executar a interface Streamlit a partir da pasta `.streamlit/`**
+
+   ```bash
+   cd .streamlit
+   streamlit run streamlit_app.py
+   ```
+
+   Esta variação utiliza o `config.toml` localizado na pasta `.streamlit/`, permitindo personalizar parâmetros (tema, porta, título etc.) sem alterar o arquivo principal na raiz.
+
+8. **Executar a suíte de testes automatizados**
 
    ```bash
    pytest
