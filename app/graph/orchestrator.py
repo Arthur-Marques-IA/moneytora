@@ -18,7 +18,7 @@ def node_extrair_dados(state: GraphState) -> GraphState:
 
     try:
         dados = extrair_dados_transacao(state["texto_original"])
-        state.update(dados.dict())
+        state.update(dados.model_dump())
     except Exception as exc:  # pragma: no cover - depende do LLM
         state["erro"] = f"Falha na extração: {exc}"
     return state

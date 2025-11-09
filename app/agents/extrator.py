@@ -24,7 +24,7 @@ output_parser = PydanticOutputParser(pydantic_object=DadosTransacao)
 prompt_template = """
 Você é um especialista em extrair informações financeiras de textos.
 Analise o texto a seguir e extraia o valor, a empresa e a data da transação.
-Se a data não especificar o ano, assuma o ano corrente.
+Se a data não especificar o ano, assuma {date}`.
 
 {format_instructions}
 
@@ -34,7 +34,10 @@ Texto da transação:
 
 prompt = ChatPromptTemplate.from_template(
     template=prompt_template,
-    partial_variables={"format_instructions": output_parser.get_format_instructions()},
+    partial_variables={
+        "format_instructions": output_parser.get_format_instructions(),
+        "date": date.today().year,
+    },
 )
 
 

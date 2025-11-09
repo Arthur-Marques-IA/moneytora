@@ -9,6 +9,8 @@ CATEGORIAS_MOCK = {
     "netflix": "Lazer",
     "amazon": "Compras",
     "mcdonald's": "Alimentação",
+    "posto": "Combustível",
+    "super": "Supermercado",
 }
 
 
