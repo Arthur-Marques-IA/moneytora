@@ -194,20 +194,18 @@ def aba_processar_notificacoes() -> None:
     if arquivo:
         with st.spinner("Extraindo texto do arquivo..."):
             if arquivo.type in ["image/jpeg", "image/png"]:
-                texto_extraido = extrair_texto_imagem_groq(arquivo)
+                texto = extrair_texto_imagem_groq(arquivo)
             elif arquivo.type == "application/pdf":
-                texto_extraido = extrair_texto_pdf_groq(arquivo)
+                texto = extrair_texto_pdf_groq(arquivo)
             elif arquivo.name.endswith(".ofx"):
-                texto_extraido = extrair_texto_ofx(arquivo)
+                texto = extrair_texto_ofx(arquivo)
             else:
                 st.error("Tipo de arquivo não suportado.")
                 return
 
-            texto = texto_extraido or ""
-
     with st.spinner("Executando agentes..."):
         try:
-            print(texto_extraido)
+            print(texto)
             resultado = _executar_fluxo_processamento(texto.strip())
         except RuntimeError as exc:
             st.error(str(exc))
