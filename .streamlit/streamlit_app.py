@@ -414,12 +414,12 @@ def aba_dashboard() -> None:
     col1.metric("Total acumulado", _formatar_moeda(total_gasto), f"{len(transacoes)} transações")
     col2.metric("Ticket médio", _formatar_moeda(ticket_medio))
     col3.metric(
-        "Gasto do último mês",
+        "Saldo do último mês",
         _formatar_moeda(mes_atual_valor),
         delta=delta_mensal or None,
     )
 
-    st.markdown("#### Distribuição de gastos por categoria")
+    st.markdown("#### Distribuição Financeira por categoria")
     st.bar_chart(
         totais_categoria.set_index("categoria"),
         width='stretch',
@@ -455,7 +455,7 @@ def aba_dashboard() -> None:
     insights = []
     if total_gasto:
         insights.append(
-            f"- Categoria com maior gasto: **{categoria_principal['categoria']}** "
+            f"- Categoria com maior Valor: **{categoria_principal['categoria']}** "
             f"({_formatar_moeda(categoria_principal['valor'])})."
         )
     if len(transacoes) > 1:
@@ -535,6 +535,8 @@ def aba_coach() -> None:
             st.markdown(resposta)
         return
 
+    REPORTS_DIR = r"C:\Users\pedro\OneDrive\hack_akcit\moneytora\reports"
+
     try:
         resposta = responder_pergunta(pergunta)
     except EnvironmentError:
@@ -542,15 +544,41 @@ def aba_coach() -> None:
             "O agente coach não está disponível no momento. "
             "Verifique a configuração da `GOOGLE_API_KEY`."
         )
-
         return
-    except Exception as exc:  # pragma: no cover - depende de serviços externos
+    except Exception as exc:
         st.error(f"Falha ao obter resposta do coach: {exc}")
         return
 
+    # salva histórico do chat
     st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+
     with st.chat_message("assistant"):
         st.markdown(resposta)
+
+        # --- 🔍 Verifica se o agente gerou algum PDF novo ---
+        if os.path.exists(REPORTS_DIR):
+            # busca o arquivo PDF mais recente na pasta
+            pdfs = [
+                os.path.join(REPORTS_DIR, f)
+                for f in os.listdir(REPORTS_DIR)
+                if f.lower().endswith(".pdf")
+            ]
+            if pdfs:
+                latest_pdf = max(pdfs, key=os.path.getmtime)
+                st.success(f"📄 Relatório gerado: `{os.path.basename(latest_pdf)}`")
+
+                # Exibe o PDF no próprio Streamlit
+                with open(latest_pdf, "rb") as f:
+                    st.download_button(
+                        label="⬇️ Baixar relatório PDF",
+                        data=f,
+                        file_name=os.path.basename(latest_pdf),
+                        mime="application/pdf",
+                    )
+
+                # opcional: exibir o PDF embutido
+                st.markdown("Visualização do relatório:")
+                st.pdf(latest_pdf)
 
 
 _mostrar_alerta_chave_api()

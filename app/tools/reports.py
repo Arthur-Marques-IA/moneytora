@@ -253,6 +253,14 @@ def _build_pdf(
 
     c.save()
 
+from typing import Optional, Dict, Any
+import os
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+
 @tool
 def gerar_relatorio_financeiro(
     start_date: str,
@@ -286,22 +294,18 @@ def gerar_relatorio_financeiro(
     total_saidas = sum(abs(t["valor"]) for t in saidas)
     saldo = total_entradas - total_saidas
 
-    # agregação por categoria (para despesas)
     saidas_by_cat = _aggregate_by_category(saidas)
-
-    # topo
     top_saidas = sorted(saidas, key=lambda x: abs(x["valor"]), reverse=True)
     top_entradas = sorted(entradas, key=lambda x: x["valor"], reverse=True)
-
-    # outliers
     outliers = _detect_outliers(saidas)
 
-    # gráfico de pizza
+    # Caminhos para salvar gráficos e PDF
+    REPORTS_DIR = r"C:\Users\pedro\OneDrive\hack_akcit\moneytora\reports"
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+
     pie_path = os.path.join(REPORTS_DIR, f"pie_{sd}_{ed}.png")
     _plot_pie_by_category(saidas_by_cat, pie_path)
 
-    # gráfico de fluxo diário
-    # agrupa por dia
     daily = {}
     for t in entradas + saidas:
         d = t["data"]
@@ -320,7 +324,6 @@ def gerar_relatorio_financeiro(
     cashflow_path = os.path.join(REPORTS_DIR, f"cashflow_{sd}_{ed}.png")
     _plot_bar_cashflow(dias, entradas_diarias, saidas_diarias, cashflow_path)
 
-    # monta pdf
     pdf_name = f"relatorio_financeiro_{sd}_{ed}.pdf"
     pdf_path = os.path.join(REPORTS_DIR, pdf_name)
 
@@ -334,9 +337,135 @@ def gerar_relatorio_financeiro(
     }
 
     periodo_label = f"{sd.strftime('%d/%m/%Y')} a {ed.strftime('%d/%m/%Y')}"
+
+    # ==========================================================
+    # PDF ESTILIZADO - MONEYTORA (com nomes de estilo únicos)
+    # ==========================================================
+    LOGO_PATH = r"C:\Users\pedro\OneDrive\hack_akcit\moneytora\moneytora_1.jpg"
+    PRIMARY_COLOR = "#1E90FF"
+
+    def _build_pdf(pdf_path, periodo_label, resumo, pie_path=None, cashflow_path=None):
+        """Gera PDF estilizado com a identidade visual da Moneytora."""
+        doc = SimpleDocTemplate(
+            pdf_path,
+            pagesize=A4,
+            rightMargin=2*cm,
+            leftMargin=2*cm,
+            topMargin=2*cm,
+            bottomMargin=2*cm,
+            title="Relatório Financeiro - Moneytora",
+        )
+
+        styles = getSampleStyleSheet()
+        # Usar nomes exclusivos para evitar conflito com estilos existentes
+        styles.add(ParagraphStyle(
+            name="MTitle",
+            fontSize=20,
+            leading=24,
+            textColor=colors.HexColor(PRIMARY_COLOR),
+            spaceAfter=12,
+            alignment=1,
+        ))
+        styles.add(ParagraphStyle(
+            name="MSubTitle",
+            fontSize=12,
+            leading=14,
+            textColor=colors.grey,
+            spaceAfter=8,
+            alignment=1,
+        ))
+        styles.add(ParagraphStyle(
+            name="MHeading",
+            fontSize=14,
+            leading=18,
+            textColor=colors.HexColor(PRIMARY_COLOR),
+            spaceBefore=12,
+            spaceAfter=6,
+        ))
+        styles.add(ParagraphStyle(
+            name="MNormal",
+            fontSize=11,
+            leading=15,
+            textColor=colors.black,
+        ))
+
+        elementos = []
+
+        # Cabeçalho: logo (se existir) + títulos
+        if os.path.exists(LOGO_PATH):
+            try:
+                elementos.append(Image(LOGO_PATH, width=120, height=60))
+            except Exception:
+                # caso o arquivo exista mas não seja legível, ignore o logo
+                pass
+
+        elementos.append(Spacer(1, 6))
+        elementos.append(Paragraph("Relatório Financeiro", styles["MTitle"]))
+        elementos.append(Paragraph("Moneytora", styles["MSubTitle"]))
+        elementos.append(Paragraph(f"Período: {periodo_label}", styles["MNormal"]))
+        elementos.append(Spacer(1, 12))
+
+        # Resumo financeiro
+        elementos.append(Paragraph("Resumo Financeiro", styles["MHeading"]))
+        data_resumo = [
+            ["Entradas", f"R$ {resumo['total_entradas']:.2f}"],
+            ["Saídas", f"R$ {resumo['total_saidas']:.2f}"],
+            ["Saldo", f"R$ {resumo['saldo']:.2f}"],
+        ]
+
+        tabela = Table(data_resumo, colWidths=[6*cm, 6*cm])
+        tabela.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(PRIMARY_COLOR)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 11),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor(PRIMARY_COLOR)),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ]))
+        elementos.append(tabela)
+        elementos.append(Spacer(1, 12))
+
+        # Gráficos
+        if pie_path and os.path.exists(pie_path):
+            elementos.append(Paragraph("Distribuição de Despesas por Categoria", styles["MHeading"]))
+            elementos.append(Image(pie_path, width=400, height=250))
+            elementos.append(Spacer(1, 12))
+
+        if cashflow_path and os.path.exists(cashflow_path):
+            elementos.append(Paragraph("Fluxo de Caixa Diário", styles["MHeading"]))
+            elementos.append(Image(cashflow_path, width=400, height=250))
+            elementos.append(Spacer(1, 12))
+
+        # Principais despesas
+        if resumo.get("top_saidas"):
+            elementos.append(Paragraph("Principais Despesas", styles["MHeading"]))
+            top_data = [["Empresa", "Valor (R$)", "Data"]]
+            for t in resumo["top_saidas"][:5]:
+                top_data.append([t.get("empresa", ""), f"{abs(t['valor']):.2f}", t.get("data", "")])
+
+            tabela_top = Table(top_data, colWidths=[6*cm, 3*cm, 3*cm])
+            tabela_top.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(PRIMARY_COLOR)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elementos.append(tabela_top)
+            elementos.append(Spacer(1, 20))
+
+        # Rodapé
+        elementos.append(Paragraph("<b>Moneytora</b> © 2025 - Inteligência Financeira", styles["MNormal"]))
+
+        # Gera PDF
+        doc.build(elementos)
+
+    # Chama o builder de PDF estilizado
     _build_pdf(pdf_path, periodo_label, resumo, pie_path=pie_path, cashflow_path=cashflow_path)
 
-    # mensagem curta para o coach usar
     texto_resumo = (
         f"Análise do período {periodo_label}:\n"
         f"- Entradas: R$ {total_entradas:.2f}\n"
