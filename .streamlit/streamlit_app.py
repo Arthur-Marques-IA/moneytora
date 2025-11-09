@@ -19,11 +19,12 @@ from app.agents.seguranca import avaliar_mensagem
 from app.config import GOOGLE_API_KEY, GROQ_API
 from app.graph.orchestrator import app_graph
 from app.repository import (
+    atualizar_transacao,
     calcular_gastos_por_categoria,
     criar_transacao,
     listar_transacoes,
 )
-from app.schemas import GastoPorCategoria, TransacaoCreate, TransacaoSchema
+from app.schemas import GastoPorCategoria, TransacaoCreate, TransacaoSchema, TransacaoUpdate
 from app.database import session_scope
 import base64
 import requests
@@ -79,6 +80,13 @@ def _registrar_transacao_manualmente(dados: TransacaoCreate) -> None:
 
     with session_scope() as session:
         criar_transacao(session, dados)
+
+
+def _atualizar_transacao_existente(transacao_id: int, dados: TransacaoUpdate) -> bool:
+    """Atualiza um registro existente no banco e indica sucesso."""
+
+    with session_scope() as session:
+        return atualizar_transacao(session, transacao_id, dados) is not None
 
 
 def _carregar_gastos_por_categoria() -> List[GastoPorCategoria]:
@@ -273,6 +281,82 @@ def aba_transacoes() -> None:
     ]
     df = pd.DataFrame(dados_tabela)
     st.dataframe(df, width='stretch', hide_index=True)
+
+    st.markdown("#### Editar transações registradas")
+    opcoes = {
+        f"#{item.id} · {item.empresa} · {item.data.strftime('%d/%m/%Y')}": item
+        for item in transacoes
+    }
+
+    if not opcoes:
+        st.info("Cadastre uma transação para habilitar a edição.")
+        return
+
+    chave_selecionada = st.selectbox("Selecione a transação para editar", list(opcoes.keys()))
+    transacao_para_editar = opcoes[chave_selecionada]
+
+    with st.form(f"form_editar_transacao_{transacao_para_editar.id}", clear_on_submit=False):
+        col1_editar, col2_editar = st.columns(2)
+        with col1_editar:
+            valor_editado = st.number_input(
+                "Valor (R$) [edição]",
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                value=float(transacao_para_editar.valor or 0),
+            )
+            data_editada = st.date_input(
+                "Data da transação [edição]",
+                value=transacao_para_editar.data,
+            )
+        with col2_editar:
+            empresa_editada = st.text_input(
+                "Empresa/Estabelecimento [edição]",
+                value=transacao_para_editar.empresa,
+            )
+            categoria_editada = st.text_input(
+                "Categoria [edição]",
+                value=transacao_para_editar.categoria,
+            )
+        salvar_edicao = st.form_submit_button("Salvar alterações")
+
+    if salvar_edicao:
+        empresa_limpa = empresa_editada.strip()
+        categoria_limpa = categoria_editada.strip()
+
+        if not empresa_limpa or not categoria_limpa:
+            st.warning("Informe a empresa e a categoria para atualizar a transação.")
+            return
+
+        alteracoes: dict[str, object] = {}
+        if round(float(valor_editado), 2) != round(float(transacao_para_editar.valor or 0), 2):
+            alteracoes["valor"] = float(valor_editado)
+        if data_editada != transacao_para_editar.data:
+            alteracoes["data"] = data_editada
+        if empresa_limpa != transacao_para_editar.empresa:
+            alteracoes["empresa"] = empresa_limpa
+        if categoria_limpa != transacao_para_editar.categoria:
+            alteracoes["categoria"] = categoria_limpa
+
+        if not alteracoes:
+            st.info("Nenhuma alteração detectada para salvar.")
+            return
+
+        try:
+            sucesso = _atualizar_transacao_existente(
+                transacao_para_editar.id,
+                TransacaoUpdate(**alteracoes),
+            )
+        except Exception as exc:  # pragma: no cover - operações de IO
+            st.error(f"Erro ao atualizar transação: {exc}")
+            return
+
+        if not sucesso:
+            st.error("Transação não encontrada para atualização.")
+            return
+
+        st.success("Transação atualizada com sucesso!")
+        st.rerun()
 
 
 def aba_dashboard() -> None:
