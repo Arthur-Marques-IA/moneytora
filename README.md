@@ -1,5 +1,7 @@
 # Documento de Projeto de Software: Moneytora
 
+[Ir para Instalação](https://github.com/Arthur-Marques-IA/moneytora/edit/main/README.md#21-guia-de-execu%C3%A7%C3%A3o-e-testes)
+
 ## 1. Introdução
 
 Este documento detalha o projeto de desenvolvimento do software **Moneytora**, um sistema multiagente de finanças pessoais concebido no contexto do evento AKCIT Camp. O objetivo principal do Moneytora é automatizar e simplificar a gestão financeira dos usuários, empregando uma arquitetura inovadora baseada em múltiplos agentes de Inteligência Artificial (IA) que trabalham de forma coordenada. A proposta central é transformar dados não estruturados de transações financeiras, como os recebidos por e-mail ou notificações, em informações organizadas e acionáveis, oferecendo aos usuários uma visão clara de seus hábitos de consumo e um assistente virtual para orientação financeira.
