@@ -3,6 +3,9 @@ import sqlite3
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Tuple
 
+import matplotlib
+matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas

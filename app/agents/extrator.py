@@ -13,7 +13,7 @@ from app.config import GOOGLE_API_KEY
 class DadosTransacao(BaseModel):
     """Estrutura da saída esperada pelo agente extrator."""
 
-    valor: float = Field(description="O valor numérico da transação.")
+    valor: float = Field(description="O valor numérico da transação sendo positivo para entradas e negativo para saídas.")
     empresa: str = Field(description="O nome da empresa ou estabelecimento.")
     data: date = Field(description="A data da transação no formato AAAA-MM-DD.")
 
