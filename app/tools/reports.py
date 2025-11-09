@@ -36,7 +36,7 @@ def _fetch_transactions(
 ) -> List[Tuple]:
     """
     Busca transações no SQLite.
-    Assumo que a tabela se chame 'Transacao' e tenha:
+    Assumo que a tabela se chame 'transacoes' e tenha:
     id, valor, empresa, data, categoria
     Se você tiver um campo de dono/usuário, filtre por ele também.
     """
@@ -47,7 +47,7 @@ def _fetch_transactions(
     if cliente_id:
         query = """
             SELECT id, valor, empresa, data, categoria
-            FROM Transacao
+            FROM transacoes
             WHERE date(data) BETWEEN ? AND ?
               AND cliente_id = ?
             ORDER BY date(data) ASC
@@ -56,7 +56,7 @@ def _fetch_transactions(
     else:
         query = """
             SELECT id, valor, empresa, data, categoria
-            FROM Transacao
+            FROM transacoes
             WHERE date(data) BETWEEN ? AND ?
             ORDER BY date(data) ASC
         """
@@ -249,7 +249,7 @@ def _build_pdf(
     c.save()
 
 
-def gerar_relatorio_gastos(
+def gerar_relatorio_financeiro(
     start_date: str,
     end_date: str,
     cliente_id: Optional[str] = None,

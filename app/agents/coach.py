@@ -5,8 +5,10 @@ Ele pode:
 2. Consultar o agente SQL para perguntas sobre valores/categorias/períodos.
 3. Acionar uma tool que gera relatório de gastos.
 """
-
-from typing import Literal, TypedDict, Optional
+import json
+from datetime import date
+from dateutil import parser as dateparser
+from typing import Literal, TypedDict, Optional, Tuple
 
 from app.agents.sql_consultation import responder_pergunta as consultar_sql
 from app.config import GOOGLE_API_KEY
@@ -103,6 +105,48 @@ def _responder_com_sql(mensagem: str) -> str:
     except Exception as e:
         return f"Não consegui consultar seus dados agora. Detalhes técnicos: {e}"
 
+def inferir_periodo_llm(mensagem: str) -> Tuple[date, date]:
+    """
+    Usa o LLM para extrair o período temporal da mensagem do usuário.
+    Retorna (data_inicio, data_fim). Se o LLM não conseguir inferir,
+    devolve o início e fim do mês atual.
+    """
+    llm = _get_llm()
+
+    prompt = f"""
+Extraia o período de tempo solicitado na frase abaixo e devolva APENAS um JSON válido
+com as chaves "start_date" e "end_date" no formato YYYY-MM-DD.
+
+A frase pode conter referências relativas ("mês passado", "últimos 30 dias", "ontem"),
+ou absolutas ("de 10 a 25 de outubro de 2025", "em março de 2024").
+
+Se o período não for mencionado, devolva o mês atual como padrão.
+
+Exemplo de saída:
+{{
+  "start_date": "2025-10-01",
+  "end_date": "2025-10-31"
+}}
+
+Frase: "{mensagem}"
+"""
+
+    resposta = llm.invoke(prompt)
+    texto = str(resposta).strip()
+
+    try:
+        data = json.loads(texto)
+        start = dateparser.parse(data["start_date"]).date()
+        end = dateparser.parse(data["end_date"]).date()
+        print(f"Inferi período: {start} a {end}")
+        return start, end
+    except Exception:
+        # fallback: mês atual
+        today = date.today()
+        from calendar import monthrange
+        first = date(today.year, today.month, 1)
+        last = date(today.year, today.month, monthrange(today.year, today.month)[1])
+        return first, last
 
 def _responder_com_relatorio(mensagem: str, cliente_id: Optional[str] = None) -> str:
     """
@@ -114,15 +158,31 @@ def _responder_com_relatorio(mensagem: str, cliente_id: Optional[str] = None) ->
             "Você pediu um relatório de gastos. No momento, a ferramenta de relatório não está disponível. "
             "Mas posso te mostrar um resumo se você disser o período (ex: 'relatório de outubro')."
         )
+    
+    # 1. inferir o período
+    start_date, end_date = inferir_periodo_llm(mensagem)
+    print(f"Período inferido para relatório: {start_date} a {end_date}")
+    # converter para string no formato que a tool aceita
+    start_str = start_date.isoformat()
+    end_str = end_date.isoformat()
 
     try:
-        # se o relatório precisar de um id, use o parâmetro; senão, remova
-        relatorio = gerar_relatorio_financeiro(cliente_id or "")
-        return (
-            "Aqui está o relatório de gastos que gerei para você:\n"
-            f"{relatorio}\n"
-            "Se quiser, posso te ajudar a interpretar."
+        resultado = gerar_relatorio_financeiro(start_str, end_str, cliente_id=cliente_id)
+        if not resultado.get("ok"):
+            return resultado.get("mensagem", "Não consegui gerar o relatório para esse período.")
+
+        # monta resposta amigável
+        texto_resumo = resultado.get("mensagem", "")
+        pdf_path = resultado.get("pdf_path")
+
+        resposta_final = (
+            f"Relatório gerado para o período de {resultado.get('periodo')} ✅\n\n"
+            f"{texto_resumo}\n"
         )
+        if pdf_path:
+            resposta_final += f"\nO PDF está disponível em: {pdf_path}"
+        return resposta_final
+
     except Exception as e:
         return f"Tentei gerar o relatório, mas houve um erro: {e}"
 
