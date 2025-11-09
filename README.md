@@ -1,6 +1,6 @@
 # Documento de Projeto de Software: Moneytora
 
-[Ir para Instalação](https://github.com/Arthur-Marques-IA/moneytora/edit/main/README.md#21-guia-de-execu%C3%A7%C3%A3o-e-testes)
+[Ir para Instalação](#21-guia-de-execu%C3%A7%C3%A3o-e-testes)
 
 ## 1. Introdução
 
