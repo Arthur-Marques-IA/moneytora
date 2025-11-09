@@ -198,69 +198,6 @@ O diagrama de casos de uso apresenta uma visão geral das interações entre o u
 **Fluxos Alternativos**:
 - **FA-01**: Se não houver transações armazenadas, o sistema exibe uma mensagem informando que não há dados para exibir.
 
-## 15. Guia de Execução e Testes
-
-Para executar a API em ambiente local siga as etapas abaixo:
-
-1. **Configurar o ambiente virtual (opcional, porém recomendado)**
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/macOS
-   .venv\Scripts\activate     # Windows PowerShell
-   ```
-
-2. **Instalar as dependências**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Inicializar o banco de dados**
-
-   A aplicação utiliza um banco SQLite (`moneytora.db`). Após alterações no modelo de dados, delete o arquivo antigo (se existir) para permitir a recriação das tabelas:
-
-   ```bash
-   rm -f moneytora.db
-   ```
-
-   O banco será recriado automaticamente ao iniciar a aplicação ou executar os testes.
-
-4. **Configurar variáveis de ambiente opcionais**
-
-   - `GOOGLE_API_KEY`: chave da API Gemini utilizada pelo agente extrator.
-
-5. **Executar o servidor FastAPI**
-
-   ```bash
-   uvicorn app.main:app --reload
-   ```
-
-6. **Executar a interface Streamlit (raiz do projeto)**
-
-   ```bash
-   streamlit run streamlit_app.py
-   ```
-
-7. **Executar a interface Streamlit a partir da pasta `.streamlit/`**
-
-   ```bash
-   cd .streamlit
-   streamlit run streamlit_app.py
-   ```
-
-   Esta variação utiliza o `config.toml` localizado na pasta `.streamlit/`, permitindo personalizar parâmetros (tema, porta, título etc.) sem alterar o arquivo principal na raiz.
-
-8. **Executar a suíte de testes automatizados**
-
-   ```bash
-   pytest
-   ```
-
-Os testes utilizam o `TestClient` do FastAPI e inicializam uma base limpa para cada caso de teste, garantindo isolamento entre os cenários.
-
----
-
 ### UC-03: Consultar Coach Financeiro
 
 **Descrição**: O usuário faz uma pergunta em linguagem natural ao Agente Coach e recebe uma resposta baseada em seus dados financeiros.
@@ -514,6 +451,78 @@ O sistema será inicializado com as seguintes categorias padrão:
 Exemplos de empresas pré-cadastradas para classificação automática incluem: McDonald's, iFood, Uber, Netflix, Drogasil e Amazon.
 
 ---
+
+## 21. Guia de Execução e Testes
+
+Para executar a API em ambiente local siga as etapas abaixo:
+
+1. **Configurar o ambiente virtual (opcional, porém recomendado)**
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # Linux/macOS
+   .venv\Scripts\activate     # Windows PowerShell
+   ```
+
+2. **Instalar as dependências**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Inicializar o banco de dados**
+
+   A aplicação utiliza um banco SQLite (`moneytora.db`). Após alterações no modelo de dados, delete o arquivo antigo (se existir) para permitir a recriação das tabelas:
+
+   ```bash
+   rm -f moneytora.db
+   ```
+
+   O banco será recriado automaticamente ao iniciar a aplicação ou executar os testes.
+
+4. **Configurar variáveis de ambiente opcionais**
+   
+   - Crie o arquivo .env com as chaves:
+     
+    ```bash
+    GOOGLE_API_KEY="SUA_API_KEY_AQUI"
+    GROQ_API = 'SUA_API_GROQ'
+    ```
+
+   - `GOOGLE_API_KEY`: chave da API Gemini utilizada pelo agente extrator.
+   - GROQ_API = chave da API Groque.
+
+6. **Executar o servidor FastAPI**
+
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+7. **Executar a interface Streamlit (raiz do projeto)**
+
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+8. **Executar a interface Streamlit a partir da pasta `.streamlit/`**
+
+   ```bash
+   cd .streamlit
+   streamlit run streamlit_app.py
+   ```
+
+   Esta variação utiliza o `config.toml` localizado na pasta `.streamlit/`, permitindo personalizar parâmetros (tema, porta, título etc.) sem alterar o arquivo principal na raiz.
+
+9. **Executar a suíte de testes automatizados**
+
+   ```bash
+   pytest
+   ```
+
+Os testes utilizam o `TestClient` do FastAPI e inicializam uma base limpa para cada caso de teste, garantindo isolamento entre os cenários.
+
+---
+
 
 ## Considerações Finais
 
