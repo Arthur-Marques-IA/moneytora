@@ -16,7 +16,7 @@ if ROOT_DIR not in sys.path:
 
 from app.agents.coach import responder_pergunta
 from app.agents.seguranca import avaliar_mensagem
-from app.config import GOOGLE_API_KEY
+from app.config import GOOGLE_API_KEY, GROQ_API
 from app.graph.orchestrator import app_graph
 from app.repository import (
     calcular_gastos_por_categoria,
@@ -25,7 +25,9 @@ from app.repository import (
 )
 from app.schemas import GastoPorCategoria, TransacaoCreate, TransacaoSchema
 from app.database import session_scope
-
+import base64
+import requests
+from PyPDF2 import PdfReader
 
 st.set_page_config(page_title="Moneytora", layout="wide", page_icon='💵')
 st.title("Moneytora – Monitoramento Financeiro com Agentes de IA")
@@ -87,6 +89,67 @@ def _carregar_gastos_por_categoria() -> List[GastoPorCategoria]:
         return [GastoPorCategoria.model_validate(item) for item in dados]
 
 
+API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+def extrair_texto_imagem_groq(arquivo) -> str:
+    """Extrai texto de uma imagem usando a Groq API (modelo multimodal)."""
+    conteudo = arquivo.read()
+    b64 = base64.b64encode(conteudo).decode("utf-8")
+
+    payload = {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "messages": [
+            {
+                "role": "system",
+                "content": "Você é um OCR inteligente. Extraia todo o texto legível da imagem enviada e devolva apenas o texto puro."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": { "url": f"data:image/png;base64,{b64}" }
+                    },
+                    {
+                        "type": "text",
+                        "text": "Extraia o texto desta imagem."
+                    }
+                ]
+            }
+        ],
+        "temperature": 0,
+        "top_p": 1,
+        "stream": False,
+        "max_completion_tokens": 1024
+    }
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API}",
+        "Content-Type": "application/json"
+    }
+
+    resp = requests.post(API_URL, headers=headers, json=payload)
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"Erro ao chamar Groq API: {resp.status_code} {resp.text}")
+
+    res_json = resp.json()
+    if "choices" not in res_json or not res_json["choices"]:
+        raise RuntimeError(f"Resposta inesperada da Groq API: {res_json}")
+
+    mensagem = res_json["choices"][0]["message"]
+    return mensagem.get("content", "").strip()
+
+def extrair_texto_pdf_groq(arquivo):
+    """Extrai texto de um PDF localmente (rápido)"""
+    reader = PdfReader(arquivo)
+    texto = "\n".join(page.extract_text() or "" for page in reader.pages)
+    return texto.strip()
+
+def extrair_texto_ofx(arquivo):
+    """Lê arquivo OFX (texto simples)"""
+    return arquivo.read().decode("utf-8")
+
 def aba_processar_notificacoes() -> None:
     """Exibe a aba de processamento automático de notificações."""
 
@@ -105,17 +168,38 @@ def aba_processar_notificacoes() -> None:
             ),
             height=200,
         )
+        arquivo = st.file_uploader(
+            "Ou envie um arquivo (imagem, PDF ou OFX):",
+            type=["jpg", "jpeg", "png", "pdf", "ofx"]
+        )
         enviar = st.form_submit_button("Processar transação")
 
     if not enviar:
         return
 
-    if not texto.strip():
-        st.info("Insira o texto da notificação para continuar.")
+    
+    if not texto.strip() and not arquivo:
+        st.info("Insira o texto ou envie um arquivo para continuar.")
         return
+
+    # Se o usuário enviou um arquivo, extrair o texto antes de processar
+    if arquivo:
+        with st.spinner("Extraindo texto do arquivo..."):
+            if arquivo.type in ["image/jpeg", "image/png"]:
+                texto_extraido = extrair_texto_imagem_groq(arquivo)
+            elif arquivo.type == "application/pdf":
+                texto_extraido = extrair_texto_pdf_groq(arquivo)
+            elif arquivo.name.endswith(".ofx"):
+                texto_extraido = extrair_texto_ofx(arquivo)
+            else:
+                st.error("Tipo de arquivo não suportado.")
+                return
+
+            texto = texto_extraido or ""
 
     with st.spinner("Executando agentes..."):
         try:
+            print(texto_extraido)
             resultado = _executar_fluxo_processamento(texto.strip())
         except RuntimeError as exc:
             st.error(str(exc))
