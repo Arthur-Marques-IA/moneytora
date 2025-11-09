@@ -298,7 +298,7 @@ def aba_transacoes() -> None:
         with col1_editar:
             valor_editado = st.number_input(
                 "Valor (R$) [edição]",
-                min_value=0.0,
+                min_value=-10000000.0,
                 step=0.01,
                 format="%.2f",
                 value=float(transacao_para_editar.valor or 0),
