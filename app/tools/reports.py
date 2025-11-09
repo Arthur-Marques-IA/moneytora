@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from langchain.tools import tool
+
 
 # Caminho padrão do banco (ajuste conforme seu projeto)
 DEFAULT_DB_PATH = os.getenv("MONEYTORA_DB_PATH", "moneytora.db")
@@ -248,16 +250,18 @@ def _build_pdf(
 
     c.save()
 
-
+@tool
 def gerar_relatorio_financeiro(
     start_date: str,
     end_date: str,
     cliente_id: Optional[str] = None,
     db_path: str = DEFAULT_DB_PATH,
 ) -> Dict[str, Any]:
-    """
-    Gera relatório financeiro em PDF e devolve metadados para o agente.
-    - start_date, end_date: 'YYYY-MM-DD' ou 'DD/MM/YYYY'
+    """Gera um relatório financeiro em PDF para o período especificado.
+    
+    Args:
+        start_date: Data de início no formato 'YYYY-MM-DD'
+        end_date: Data de fim no formato 'YYYY-MM-DD'
     """
     sd = _parse_date(start_date)
     ed = _parse_date(end_date)

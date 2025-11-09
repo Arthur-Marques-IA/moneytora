@@ -1,40 +1,66 @@
 """
-Agente Coach: responsável pela conversação com o usuário e orquestração de consultas financeiras.
-Ele pode:
-1. Responder dúvidas gerais de educação financeira.
-2. Consultar o agente SQL para perguntas sobre valores/categorias/períodos.
-3. Acionar uma tool que gera relatório de gastos.
+Módulo do agente coach de finanças pessoais "Moneytora". 
+Este agente utiliza ferramentas para consultar dados financeiros e gerar relatórios, 
+além de responder perguntas gerais sobre educação financeira.
 """
-import json
-from datetime import date
-from dateutil import parser as dateparser
-from typing import Literal, TypedDict, Optional, Tuple
 
-from app.agents.sql_consultation import responder_pergunta as consultar_sql
-from app.config import GOOGLE_API_KEY
+from typing import Optional
 
-# opcional: uma tool que gera relatório de gastos
-try:
-    from app.tools.reports import gerar_relatorio_financeiro
-except Exception:
-    gerar_relatorio_financeiro = None  # se não existir, o agente só não usa
-
+from langchain.agents import create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import AIMessage
+
+from app.config import GOOGLE_API_KEY
+from app.tools.reports import gerar_relatorio_financeiro
+from app.tools.sql_consultation import consultar_dados_financeiros
 
 
-# Prompt base do coach
-COACH_SYSTEM_PROMPT = (
-    ''' Você é a "Moneytora", uma assistente de finanças pessoais e coach de IA. Sua personalidade é encorajadora, profissional e objetiva.\n\nSua missão principal é ajudar o usuário a entender seus hábitos financeiros com base exclusivamente nos dados de transações fornecidos.\n\n---\n\n### 1. Diretrizes de Interação\n\n* Tom de Voz: Seja amigável, mas direto ao ponto. Use uma linguagem clara e evite jargões financeiros complexos. Aja como um coach que quer ver o usuário ter sucesso.\n* Fonte da Verdade: Suas respostas devem ser 100% baseadas nos dados de transações fornecidos. NUNCA invente transações, valores ou categorias. Se o usuário perguntar sobre algo que não está nos dados, informe que você não tem essa informação.\n* Proatividade (Leve): Ao responder uma pergunta, sinta-se à vontade para adicionar uma observação útil.\n * Exemplo de Usuário: "Quanto gastei com alimentação?"\n * Sua Resposta: "Este mês, seus gastos registrados em 'Alimentação' foram de R$ 450,00. Notei que a maior parte disso foi na categoria 'Restaurantes'."\n\n### 2. Contexto de Dados\n\nVocê terá acesso a uma lista de transações do usuário. Esses dados já foram extraídos e classificados. Os dados estarão em um formato de lista de objetos, como este:\n\njson\n[\n {\n \"id\": 1,\n \"descricao\": \"Mc Donald's\",\n \"valor\": 50.00,\n \"data\": \"2025-10-25\",\n \"categoria\": \"Alimentação\"\n },\n {\n \"id\": 2,\n \"descricao\": \"Uber Viagem\",\n \"valor\": 25.50,\n \"data\": \"2025-10-26\",\n \"categoria\": \"Transporte\"\n },\n {\n \"id\": 3,\n \"descricao\": \"Netflix\",\n \"valor\": 39.90,\n \"data\": \"2025-10-27\",\n \"categoria\": \"Assinaturas\"\n }\n]\n\n\n*(Nota: Na implementação real, esta lista será injetada dinamicamente no contexto da conversa.)\n\n### 3. Capacidades (O que você DEVE fazer)\n\n Responder a Perguntas Específicas:\n * "Quanto gastei em [categoria] este mês?"\n * "Quais foram minhas 5 maiores despesas?"\n * "Liste todas as minhas compras em [loja]."\n* Fazer Resumos:\n * "Faça um resumo dos meus gastos da última semana."\n * "Quais são minhas principais categorias de gastos?"\n* Identificar Padrões (Simples):\n * "Onde gastei mais dinheiro?"\n * "Quais assinaturas eu paguei este mês?"\n* Referenciar os Gráficos:\n * "Como você pode ver no gráfico de pizza, 'Alimentação' foi sua maior despesa..."\n\n### 4. Limitações e Guardrails (O que você NÃO DEVE fazer)\n\n* NÃO DÊ ACONSELHAMENTO FINANCEIRO (REGRA DE OURO):\n * Permitido (Coaching): "Notei que 30% dos seus gastos foram em 'Restaurantes'. Esta é uma área comum onde as pessoas buscam economizar."\n * PROIBIDO (Aconselhamento): "Você deve parar de comer fora."\n * PROIBIDO (Investimentos): "Você deve investir em ações" ou "Compre Bitcoin."\n * Sua resposta padrão para isso deve ser: "Como uma IA de coaching, não posso dar conselhos financeiros ou de investimento. Minha função é ajudá-lo a organizar e entender seus gastos."\n* NÃO FAÇA PREVISÕES: Não tente prever gastos futuros ou o mercado de ações.\n* NÃO SEJA CRÍTICO OU SENTENCIOSO: Nunca julgue os gastos do usuário (ex: "Você gastou muito com isso."). Mantenha um tom neutro e focado nos dados.\n* NÃO DISCUTA OUTROS ASSUNTOS: Se o usuário perguntar sobre o tempo, política ou qualquer outro tópico não relacionado às finanças pessoais dele (baseado nos dados), reoriente educadamente a conversa.\n * Exemplo: "Meu foco é ajudá-lo com seus dados financeiros. Você tem alguma pergunta sobre suas transações?" '''
-)
+# ============================================================================
+# PROMPT DO SISTEMA
+# ============================================================================
+
+COACH_SYSTEM_PROMPT = """Você é a "Moneytora", uma assistente de finanças pessoais e coach de IA. Sua personalidade é encorajadora, profissional e objetiva.
+
+Sua missão principal é ajudar o usuário a entender seus hábitos financeiros com base exclusivamente nos dados de transações fornecidos.
+
+## Diretrizes de Interação
+
+* **Tom de Voz**: Seja amigável, mas direto ao ponto. Use uma linguagem clara e evite jargões financeiros complexos. Aja como um coach que quer ver o usuário ter sucesso.
+
+* **Fonte da Verdade**: Suas respostas devem ser 100% baseadas nos dados de transações fornecidos. NUNCA invente transações, valores ou categorias. Se o usuário perguntar sobre algo que não está nos dados, informe que você não tem essa informação.
+
+* **Proatividade (Leve)**: Ao responder uma pergunta, sinta-se à vontade para adicionar uma observação útil.
+  - Exemplo: "Este mês, seus gastos registrados em 'Alimentação' foram de R$ 450,00. Notei que a maior parte disso foi na categoria 'Restaurantes'."
+
+## Capacidades
+
+Você tem acesso a ferramentas que permitem:
+1. **Consultar dados financeiros**: Use a tool `consultar_dados_financeiros` para responder perguntas sobre valores, totais, gastos por categoria, períodos, etc.
+2. **Gerar relatórios**: Use a tool `gerar_relatorio_pdf` quando o usuário pedir um relatório completo, PDF ou documento detalhado.
+3. **Responder dúvidas gerais**: Para dicas de organização financeira, economia e educação financeira (sem dar conselhos de investimento).
+
+## Limitações e Guardrails
+
+* **NÃO DÊ ACONSELHAMENTO FINANCEIRO** (REGRA DE OURO):
+  - ✅ Permitido (Coaching): "Notei que 30% dos seus gastos foram em 'Restaurantes'. Esta é uma área comum onde as pessoas buscam economizar."
+  - ❌ PROIBIDO (Aconselhamento): "Você deve parar de comer fora."
+  - ❌ PROIBIDO (Investimentos): "Você deve investir em ações" ou "Compre Bitcoin."
+  - Resposta padrão: "Como uma IA de coaching, não posso dar conselhos financeiros ou de investimento. Minha função é ajudá-lo a organizar e entender seus gastos."
+
+* **NÃO FAÇA PREVISÕES**: Não tente prever gastos futuros ou o mercado de ações.
+
+* **NÃO SEJA CRÍTICO OU SENTENCIOSO**: Nunca julgue os gastos do usuário. Mantenha um tom neutro e focado nos dados.
+
+* **NÃO DISCUTA OUTROS ASSUNTOS**: Se o usuário perguntar sobre temas não relacionados às finanças pessoais, reoriente educadamente a conversa.
+"""
 
 
-# Estrutura para a classificação de intenção
-class Intencao(TypedDict):
-    tipo: Literal["consultar_sql", "gerar_relatorio", "resposta_geral"]
-    # você pode acrescentar mais campos aqui, tipo período, categoria etc.
-
+# ============================================================================
+# FUNÇÕES AUXILIARES
+# ============================================================================
 
 def _get_llm() -> ChatGoogleGenerativeAI:
+    """Cria uma instância do modelo Gemini configurada para o coach."""
     if not GOOGLE_API_KEY:
         raise RuntimeError("Erro: GOOGLE_API_KEY não configurada.")
     return ChatGoogleGenerativeAI(
@@ -44,166 +70,108 @@ def _get_llm() -> ChatGoogleGenerativeAI:
     )
 
 
-def classificar_intencao(mensagem: str) -> Intencao:
+# ============================================================================
+# CRIAÇÃO DO AGENTE
+# ============================================================================
+
+def create_coach_agent():
     """
-    Usa o LLM para entender o que o usuário quer fazer.
-    Retorna um dicionário simples com o tipo de ação.
-    """
-    llm = _get_llm()
-
-    prompt_classificador = f"""
-Você é um classificador de intenções para um chatbot financeiro.
-
-Classifique a mensagem a seguir em UMA das opções:
-1. "consultar_sql" -> quando o usuário quer saber valores, totais, maiores gastos, gastos por categoria, por mês, por dia, por período, comparação de gastos.
-2. "gerar_relatorio" -> quando o usuário pedir relatório, resumo completo, pdf, documento, relatório detalhado dos gastos.
-3. "resposta_geral" -> quando o usuário pedir dicas de economia, como se organizar, como guardar mais, como sair das dívidas, sem pedir números específicos.
-
-Responda APENAS com o nome da intenção, nada mais.
-
-Mensagem do usuário: \"{mensagem}\"
-"""
-
-    resposta = llm.invoke(prompt_classificador)
-    texto = str(resposta).strip().lower()
-
-    if "consultar_sql" in texto:
-        return {"tipo": "consultar_sql"}
-    if "gerar_relatorio" in texto:
-        return {"tipo": "gerar_relatorio"}
-    # fallback
-    return {"tipo": "resposta_geral"}
-
-
-def _responder_geral(mensagem: str) -> str:
-    """
-    Usa o LLM com o prompt do coach para responder perguntas abertas de finanças pessoais.
-    """
-    llm = _get_llm()
-    prompt = (
-        f"{COACH_SYSTEM_PROMPT}\n"
-        f"Usuário: {mensagem}\n"
-        f"Coach (responda em português, com 3 a 6 tópicos práticos se fizer sentido):"
-    )
-    resposta = llm.invoke(prompt)
-    return str(resposta).strip()
-
-
-def _responder_com_sql(mensagem: str) -> str:
-    """
-    Encapsula a chamada ao agente SQL e formata o retorno.
-    """
-    try:
-        dados = consultar_sql(mensagem)
-        if not dados:
-            return (
-                "Não encontrei dados para essa consulta. "
-                "Tente especificar o período (ex: 'neste mês', 'em outubro', 'nos últimos 30 dias') ou a categoria."
-            )
-        # aqui você pode padronizar a resposta do agente SQL
-        return f"Aqui está o que encontrei:\n{dados}"
-    except Exception as e:
-        return f"Não consegui consultar seus dados agora. Detalhes técnicos: {e}"
-
-def inferir_periodo_llm(mensagem: str) -> Tuple[date, date]:
-    """
-    Usa o LLM para extrair o período temporal da mensagem do usuário.
-    Retorna (data_inicio, data_fim). Se o LLM não conseguir inferir,
-    devolve o início e fim do mês atual.
-    """
-    llm = _get_llm()
-
-    prompt = f"""
-Extraia o período de tempo solicitado na frase abaixo e devolva APENAS um JSON válido
-com as chaves "start_date" e "end_date" no formato YYYY-MM-DD.
-
-A frase pode conter referências relativas ("mês passado", "últimos 30 dias", "ontem"),
-ou absolutas ("de 10 a 25 de outubro de 2025", "em março de 2024").
-
-Se o período não for mencionado, devolva o mês atual como padrão.
-
-Exemplo de saída:
-{{
-  "start_date": "2025-10-01",
-  "end_date": "2025-10-31"
-}}
-
-Frase: "{mensagem}"
-"""
-
-    resposta = llm.invoke(prompt)
-    texto = str(resposta).strip()
-
-    try:
-        data = json.loads(texto)
-        start = dateparser.parse(data["start_date"]).date()
-        end = dateparser.parse(data["end_date"]).date()
-        print(f"Inferi período: {start} a {end}")
-        return start, end
-    except Exception:
-        # fallback: mês atual
-        today = date.today()
-        from calendar import monthrange
-        first = date(today.year, today.month, 1)
-        last = date(today.year, today.month, monthrange(today.year, today.month)[1])
-        return first, last
-
-def _responder_com_relatorio(mensagem: str, cliente_id: Optional[str] = None) -> str:
-    """
-    Chama a tool de relatório, se existir.
-    """
-    if gerar_relatorio_financeiro is None:
-        # fallback se a tool não estiver disponível
-        return (
-            "Você pediu um relatório de gastos. No momento, a ferramenta de relatório não está disponível. "
-            "Mas posso te mostrar um resumo se você disser o período (ex: 'relatório de outubro')."
-        )
+    Cria e retorna o agente coach usando create_agent do LangChain.
     
-    # 1. inferir o período
-    start_date, end_date = inferir_periodo_llm(mensagem)
-    print(f"Período inferido para relatório: {start_date} a {end_date}")
-    # converter para string no formato que a tool aceita
-    start_str = start_date.isoformat()
-    end_str = end_date.isoformat()
+    Esta é a abordagem moderna recomendada, que permite ao LLM decidir
+    autonomamente qual tool usar com base nas descrições.
+    
+    Returns:
+        Agente coach configurado e pronto para uso
+    """
+    # Lista de tools disponíveis (importadas do módulo app.tools.coach)
+    tools = [
+        consultar_dados_financeiros,
+        gerar_relatorio_financeiro,
+    ]
+    
+    # Cria o agente
+    agent = create_agent(
+        model=_get_llm(),
+        tools=tools,
+        system_prompt=COACH_SYSTEM_PROMPT,
+    )
+    
+    return agent
 
-    try:
-        resultado = gerar_relatorio_financeiro(start_str, end_str, cliente_id=cliente_id)
-        if not resultado.get("ok"):
-            return resultado.get("mensagem", "Não consegui gerar o relatório para esse período.")
 
-        # monta resposta amigável
-        texto_resumo = resultado.get("mensagem", "")
-        pdf_path = resultado.get("pdf_path")
+# ============================================================================
+# INTERFACE PÚBLICA 
+# ============================================================================
 
-        resposta_final = (
-            f"Relatório gerado para o período de {resultado.get('periodo')} ✅\n\n"
-            f"{texto_resumo}\n"
-        )
-        if pdf_path:
-            resposta_final += f"\nO PDF está disponível em: {pdf_path}"
-        return resposta_final
-
-    except Exception as e:
-        return f"Tentei gerar o relatório, mas houve um erro: {e}"
+# Cache do agente para evitar recriação
+_cached_agent = None
 
 
 def responder_pergunta(mensagem: str, cliente_id: Optional[str] = None) -> str:
     """
-    Ponto de entrada do agente.
-    1. Classifica a intenção.
-    2. Executa a ação (SQL, relatório ou resposta geral).
-    3. Devolve a resposta ao usuário.
+    Ponto de entrada do agente coach (mantém compatibilidade com a API anterior).
+    
+    Esta função processa a mensagem do usuário e retorna uma resposta do agente coach.
+    O agente pode decidir autonomamente usar ferramentas (consultar dados, gerar relatórios)
+    ou responder diretamente com base em seu conhecimento de educação financeira.
+    
+    Args:
+        mensagem: Pergunta ou solicitação do usuário
+        cliente_id: ID opcional do cliente (usado para filtrar dados por usuário)
+    
+    Returns:
+        Resposta do agente coach em formato de texto
+    
+    Examples:
+        >>> responder_pergunta("Quanto gastei com alimentação este mês?")
+        "Seus gastos com alimentação este mês foram de R$ 450,00..."
+        
+        >>> responder_pergunta("Gere um relatório do mês passado")
+        "✅ Relatório gerado com sucesso para o período de 01/10/2024 a 31/10/2024!..."
+        
+        >>> responder_pergunta("Como posso economizar mais?")
+        "Aqui estão algumas dicas práticas para economizar: 1. Acompanhe seus gastos..."
     """
+    global _cached_agent
+    
     if not GOOGLE_API_KEY:
         return "Erro: GOOGLE_API_KEY não configurada."
+    
+    try:
+        # Cria ou reutiliza o agente
+        if _cached_agent is None:
+            _cached_agent = create_coach_agent()
+        
+        # Prepara o contexto (se houver cliente_id)
+        context = {"cliente_id": cliente_id} if cliente_id else {}
+        
+        # Invoca o agente
+        resultado = _cached_agent.invoke(
+            {"messages": [("user", mensagem)]},
+            config={"configurable": {"context": context}}
+        )
+        
+        # Extrai a resposta
+        if isinstance(resultado, dict) and "messages" in resultado:
+            # Pega a última mensagem do agente
+            last_message = resultado["messages"][-1]
+            if isinstance(last_message, AIMessage):
+                return last_message.content
+            return str(last_message)
+        
+        return str(resultado)
+        
+    except Exception as e:
+        return f"Ocorreu um erro ao processar sua pergunta: {str(e)}"
 
-    intencao = classificar_intencao(mensagem)
 
-    if intencao["tipo"] == "consultar_sql":
-        return _responder_com_sql(mensagem)
+def limpar_cache_agente():
+    """
+    Limpa o cache do agente, forçando sua recriação na próxima invocação.
+    
+    Útil quando há mudanças nas configurações ou quando se deseja liberar memória.
+    """
+    global _cached_agent
+    _cached_agent = None
 
-    if intencao["tipo"] == "gerar_relatorio":
-        return _responder_com_relatorio(mensagem, cliente_id=cliente_id)
-
-    # caso contrário, resposta geral
-    return _responder_geral(mensagem)
